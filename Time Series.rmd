@@ -1,0 +1,187 @@
+
+## Section 1 : Introduction
+The data set that we will be analyzing in this project is the measurement of the annual flow of the river Nile (Cobb(1978), Table 1, p.249). This measurement is in 
+10^8 m^3 and the time series has 100 observations. This can easily be accessed as an internal built-in data set from R by loading data("NILE"). This unfortunately
+in not an updated data set to current day time, it has observations from 1871 to 1970. Regardless, there is a lot that we can learn from this large set of 
+observations. The purpose of this project is to analyze the flow level of the river Nile and to attempt to create a functioning ARIMA type model that could
+be used for forecasting and inference. We would like to see if we can predict how the flow level will look in the future. There are many current issues in our 
+world that come from rising and lowering water levels. These include: loss of habitat for wild animals, as well as destruction to infrastructure caught up in rising 
+waves, among numerous others. If we can create an accurate model that expects these problems to arise, we may be able to take action and deescalate the situation, 
+or at the very least, better inform the population of these potential ongoing issues.
+
+## Section 2: Modelling
+First, we load all of the necessary packages for our time series analysis. Then, we will load in our data set using the previously discussed data() function. A quick
+summary of our data tells us that the data ranges from a 456 to 1370 with a mean of 919.4 and median of 893.5. Now, lets get a plot of the observations to visualize 
+what our time series looks like. We plot using the plot() function:
+```{r, include=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(TSA)
+library(xts)
+library(forecast)
+library(uroot)
+library(tseries)
+```
+```{r, include=FALSE}
+data("Nile")
+
+df<-Nile
+
+head(df)
+tail(df)
+summary(df)
+str(df)
+```
+```{r, echo=FALSE, out.width="50%", out.height="33%"}
+plot(df,type = "l", xlab = "Year",ylab = "Level",col="blue", main = "Nile Data")
+plot(diff(log(df)),type = "l", xlab = "Year",ylab = "Level",col="blue", main = "Diff(log(Nile data))")
+```
+
+From first observation, it does not appear to be stationary. Mean is not constant as it has a general downwards trend and jumps up and down. Obviously not constant
+variance as the peaks and valleys jump around quite a bit and especially in the middle it looks the most volatile. We use an augmented Dickey-Fuller test (ADF) to
+test if there is a unit root. Our results say that we can only guarantee that there is no unit root with about 93.5% certainty. The ADF statistic is also 
+only -3.3657, we want a larger negative number and a better confidence in our assessment before concluding that it is a stationary process. Lets first try logging it. 
+
+After just logging, it only appears to help out the variance just a little bit(logged graph not included). Some of the peaks and valleys look much more
+"standardized" as we would expect, but the mean still seams to change over time. We run ADF test again and we only see minor improvements. We can now say 
+with 95% confidence that our null hypothesis of a unit root is rejected for a stationary process. The ADF test stat is now -3.4819. A bit better but we can 
+still do more. Our next step is to try to differentiate it to help with the mean. 
+
+After log diff, the process looks so much more stationary. Mean and variance look relatively constant throughout. Variance still seems to jump around a bit here 
+and there, especially in the middle. We can say that this is a mostly stationary time series. 
+```{r,include=FALSE}
+adf.test(df)
+
+adf.test(log(df))
+
+adf.test(diff(log(df)),alternative = ("s"))
+```
+A very small P value of even less than 0.01 indicates that our null hypothesis of having a unit root is incredibly unlikely. It is less than 1% likely that our 
+differentiated and logged time series data has a unit root. Hence, we conclude that it is very likely we do have a stationary time series. The ADF test stat is 
+now -7.1644. This is enough for us to move on to the next steps of our analysis with the assumption that this is a stationary process. 
+
+Next step is to do some model specification. We will use a variety of methods to determine a selection of potential models that we believe could hypothetically 
+model the data set well. We start off with the Autocorrelation plot to see if we can find an MA model without needing an AR term. Keep in mind, we have already 
+differentiated once. This means that all potential models that we could specify from here will be IMA, not simply MA. 
+
+```{r, echo=FALSE, out.width="50%", out.height="33%"}
+acf(diff(log(df)),ci.type='ma')
+pacf(diff(log(df)))
+```
+
+It appears as tho our first lag is the only one that is well above the limits. An IMA(1,1)  model should be considered. We have a couple lags that seem to be very 
+close to that threshold of significance. Namely, lag 7, 8 and 10 all are quite large. Lag 9 is the only other one that truly exceeded the threshold. If we use the 
+standard error alternative boundaries, all the other concerning ones start to look less so. We may not need an MA term in this model, but if we are strictly just 
+doing and MA model or IMA model the q should be quite low. Probably no greater than 1 should be further considered. Lag 9 should undergo further analysis as it is
+outside of our boundaries but just barely. Now lets try looking at the Partial Autocorrelation graph.
+
+A very difficult PACF graph. We clearly have a significant lag at lag 1. If we use an AR model, we should probably start off with looking at ARI(1,1). However,
+many of the lags after 1 are dangerously close to the significance level line. Namely, lags 1, 2, 4, 5, 7 and 10 are all past the line, but lag 1 is the only
+one that is clearly very significant. The others deserve further analysis and consideration, but in the interest of simplicity, we should definitely start 
+with an ARI(1,1) and move up in complexity from there. 
+```{r,include=FALSE}
+eacf(diff(log(df)),ar.max = 20, ma.max = 20)
+```
+Due to the lack of space, the EACF table is not included. We get a very unclear extended ACF. Simplicity says to start off with IMA(1,1) since it has the fewest
+terms and to go from there. If it does not work we can try something else such as ARI(1,1). Although our EACF says that that ARI(1,1) is not the best idea, our
+PACF says that it definitely does deserve some consideration. If those all look poor, we will move onto ARIMA(1,1,1) and get more complex.  
+```{r, echo=FALSE, out.width="33%", out.height="33%", include=FALSE}
+res=armasubsets(y=diff(log(df)),nar=10,nma=10, ar.method='ols')
+plot(res)
+```
+
+The Bayesian Information Criterion gives us a lot of info on what kind of models may work. The simplest one that still gives us a very low BIC is the one we have
+already hypothesized, IMA(1,1). We should also check out the model containing lag 8  of the time series, and lag 1 of the errors, ARIMA(8,1,1), as that is the model
+that truly minimizes the BIC. The model with lag 4 and 8 of the time series and 1 of the errors should also be looked at. This agrees with our EACF that any model
+without an MA term is probably not that great.
+
+In the interest of the brevity of this project and the 6 page limit, we will only be further analyzing the model that is the simplest and shows the most promise.
+Now, estimate parameters for an IMA(1,1) model. We estimate using an ensemble method and use many different ways and average them out.
+```{r, include=FALSE}
+
+estimate.ma1.mom=function(x){r=acf(x,plot=F)$acf[1];
+  if (abs(r)<0.5) return((-1+sqrt(1-4*r^2))/(2*r))
+  else return(NA)}
+
+
+#ma(diff(log(df)), order = 3)
+
+estimate.ma1.mom(diff(log(df)));
+
+Arima(diff(log(df)),order=c(0,0,1),method='CSS')
+Arima(diff(log(df)),order=c(0,0,1),method='ML')
+```
+Our estimate for theta in an IMA(1,1) model by the function outlined in the R code appendix of chapter 7 in our text book is -0.5549933. Using the ARIMA function 
+from the time series analysis package of R says estimates for theta are equal to -0.8209 with S.E. equal to 0.0937 when using the conditional sum of squares method 
+and -0.7982 with S.E. of 0.1038 when using the maximum likelihood method. If we average all of these out then it is fair to say that our true theta value will be 
+around -0.72469, So that is what we will set our estimator as
+
+Now that we have estimators of the models parameters, let's do some model diagnostics to see if they're any good. start off with a standardized residuals plot 
+for our IMA(1,1) estimates.
+
+```{r, out.width="33%", out.height="33%", echo=FALSE}
+plot(rstandard(Arima(diff(log(df)),order=c(0,0,1))),ylab ='Standardized Residuals',type='o'); abline(h=0)
+qqnorm(residuals(Arima(diff(log(df)),order=c(0,0,1))))
+
+       
+qqline(residuals(Arima(diff(log(df)),order=c(0,0,1))))
+acf(residuals(Arima((log(df)),order=c(0,1,1))))
+```
+We get a pretty good standardized residuals plot. We get a rectangular scatter around a zero mean and there does not appear to be any trends in the variance over 
+time, baring perhaps a strangely large amount in the middle, as would be expected with how those points are from the mean in our original time series graph. 
+
+Now lets check out a QQ plot. Our overall plot is a little bit funky and strange but there isn't too much cause for alarm. The extreme values at the bottom and 
+top do appear to be a bit off, especially the one at the very bottom. Our errors appear to potentially follow a very subtle wave pattern in the middle, indicating
+that they may not be fully normal random. This may be cause for a bit of concern as this seems to say that there is an underlying trend in our residuals, something
+that our model is not fully accounting for. This should be kept in mind when doing forecasting.
+
+Next, we will look at the sample ACF for our residuals to make sure that there isn't any strong auto-correlation between what should be random white noise. Our SACF 
+is exactly what we would hope it to be. There is zero mean and none of the lags present any strong correlation that exceeds our bounds. The variance appears to be 
+mostly random, however there may be the same slightly wave-like pattern as we saw in our QQ plot. Lag 4 does come very close, but this is not enough of a cause for 
+alarm to say the model violates any assumptions. 
+
+```{r, out.width="33%", out.height="33%", echo=FALSE, include=FALSE}
+tsdiag(Arima(diff(log(df)),order=c(0,0,1)),gof=15,omit.initial=F)
+```
+
+Our P values from the Ljung-Box stat are not low enough to reject our null hypothesis that the error terms are uncorrelated. Some do get quite close, but for now
+it is safe to remain in our current hypothesis. Since we are using the simplest model we can, an IMA(1,1), we shouldn't need to worry about over fitting. Any simpler
+and we would have no terms at all. But the ones we have are significant by our criteria. After analysis of the IMA(1,1) model, It appears as though it does not break 
+any assumptions and is good enough to try to forecast with. Since it is the simplest of the models we have hypothesized to work, we will use it. 
+
+## Section 3: Results
+
+```{r,echo=FALSE, out.width="50%", out.height="50%", include=FALSE}
+#our model is stationary
+m1.df=Arima(diff(log(df)),order=c(0,0,1))
+plot(m1.df,type='b',xlab='Time',
+ylab='Imaginary')
+abline(h=coef(m1.df)[names(coef(m1.df))=='intercept'])
+```
+```{r,echo=FALSE,out.width="70%", out.height="70%"}
+#forecasting our model
+autoplot(forecast(m1.df))
+```
+
+Our forecast of the IMA(1,1) model is fitted and looks appropriate. The error variance is quite large unfortunately, pretty much spanning the entire range of the known
+data so far. As far as practical effectiveness goes, it is quite limited. However, we can say with quite a lot of certainty that in the near future our water levels
+will not be rising or falling to worrying levels that we have never seen before. Still, there is likely a lot of variance within our prediction, so our confidence 
+interval of where the next value will fall is quite large compared to the data set's range.  
+
+## Section 4: Conclusion
+Our model is quite limited in its simplicity. Due to space constraints, we were only able to analyze the simplest of the hypothesized models, IMA(1,1). Still, we were
+able to come up with a well fitted model that does not blatantly break any of our assumptions. In our observations of the model diagnostics graphs, there did seem to
+be an underlying trend in the error that our model did not account for. We still have many more complex models that our acf, pacf and eacf point towards that we can 
+try out to see if they account for these trends. In the future, we would like to more closely examine the other models, as well as further analyze the lag points that
+may have been an issue when we first picked our model before we truly go forth with using this model for inference in every day life.  
+
+
+
+## References
+
+Durbin, J. and Koopman, S. J. (2001). Time Series Analysis by State Space Methods. Oxford University Press.
+
+Cobb, G. W. (1978). The problem of the Nile: conditional solution to a change-point problem. Biometrika 65, 243–51. doi: 10.2307/2335202.
+
+Cryer, J. D., & Chan, K. (2008). Time series analysis: With applications in R. (Springer eBooks.) New York: Springer.
